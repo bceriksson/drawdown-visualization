@@ -433,7 +433,11 @@ function App() {
               </Typography>
               <Slider
                 value={drawdownAccount}
-                onChange={(_, value) => setDrawdownAccount(value as number)}
+                onChange={(_, value) => {
+                  setDrawdownAccount(value as number);
+                  // Disable DTI limit when user manually adjusts drawdown account
+                  setLimitDTI(false);
+                }}
                 min={100000}
                 max={1500000}
                 step={100000}
@@ -488,7 +492,15 @@ function App() {
                 control={
                   <Switch
                     checked={limitDTI}
-                    onChange={(_, checked) => setLimitDTI(checked)}
+                    onChange={(_, checked) => {
+                      setLimitDTI(checked);
+                      if (checked) {
+                        // Reset drawdown account to default when enabling DTI limit
+                        setDrawdownAccount(1000000);
+                        // Trigger recalculation
+                        calculateMonthlyPayment();
+                      }
+                    }}
                     color="primary"
                   />
                 }
