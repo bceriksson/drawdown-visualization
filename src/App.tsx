@@ -11,7 +11,9 @@ import {
   TableCell,
   TableContainer,
   TableHead,
-  TableRow
+  TableRow,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
 
 function App() {
@@ -19,6 +21,8 @@ function App() {
   const [drawdownAccount, setDrawdownAccount] = useState<number>(1000000);
   const [monthlyDrawdown, setMonthlyDrawdown] = useState<number>(5000);
   const [interestRate, setInterestRate] = useState<number>(0.0625); // 6.25% default
+  const [limitDTI, setLimitDTI] = useState<boolean>(true);
+  const [additionalDownpayment, setAdditionalDownpayment] = useState<number>(0);
   const [monthlyPayment, setMonthlyPayment] = useState<number>(0);
   const [paydownMonthlyPayment, setPaydownMonthlyPayment] = useState<number>(0);
   const [remainingLiquid, setRemainingLiquid] = useState<number>(0);
@@ -28,6 +32,7 @@ function App() {
     propertyTax: 0,
     insurance: 0
   });
+  const [historicalReturns, setHistoricalReturns] = useState<number[]>([]);
   const [projection, setProjection] = useState<{
     year: number,
     p10: number,
@@ -63,21 +68,56 @@ function App() {
   const PROJECTION_YEARS = 15;
   const MONTHLY_CONTRIBUTION = 200000 / 12; // 200k annual contribution divided by 12
 
-  // Historical S&P 500 monthly returns (1973-2023)
-  // Source: https://www.macrotrends.net/2526/sp-500-historical-annual-returns
-  const HISTORICAL_MONTHLY_RETURNS = [
-    0.0108, -0.0089, 0.0123, -0.0067, 0.0098, -0.0045, 0.0112, -0.0034, 0.0089, -0.0056,
-    0.0101, -0.0078, 0.0092, -0.0045, 0.0115, -0.0032, 0.0098, -0.0056, 0.0107, -0.0067,
-    0.0112, -0.0045, 0.0098, -0.0034, 0.0105, -0.0056, 0.0118, -0.0045, 0.0092, -0.0067,
-    0.0101, -0.0034, 0.0115, -0.0056, 0.0098, -0.0045, 0.0107, -0.0067, 0.0112, -0.0034,
-    0.0098, -0.0056, 0.0105, -0.0045, 0.0118, -0.0067, 0.0092, -0.0034, 0.0101, -0.0056
-  ];
+  // Load historical S&P 500 data
+  useEffect(() => {
+    const loadHistoricalData = async () => {
+      try {
+        const response = await fetch('/data/sp500_returns.json');
+        const data = await response.json();
+        setHistoricalReturns(data.returns);
+
+        // Calculate and log statistics
+        const returns = data.returns;
+        const mean = returns.reduce((a: number, b: number) => a + b, 0) / returns.length;
+        const sorted = [...returns].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        const p90 = sorted[Math.floor(sorted.length * 0.9)];
+
+        console.log('Market Returns Analysis:');
+        console.log('Mean monthly return:', (mean * 100).toFixed(2) + '%');
+        console.log('Median monthly return:', (median * 100).toFixed(2) + '%');
+        console.log('90th percentile monthly return:', (p90 * 100).toFixed(2) + '%');
+        console.log('Number of data points:', returns.length);
+        console.log('Date range:', data.date_range);
+      } catch (error) {
+        console.error('Error loading historical data:', error);
+        // Fallback to a reasonable default if fetch fails
+        setHistoricalReturns([
+          0.0108, -0.0089, 0.0123, -0.0067, 0.0098, -0.0045, 0.0112, -0.0034, 0.0089, -0.0056,
+          0.0101, -0.0078, 0.0092, -0.0045, 0.0115, -0.0032, 0.0098, -0.0056, 0.0107, -0.0067,
+          0.0112, -0.0045, 0.0098, -0.0034, 0.0105, -0.0056, 0.0118, -0.0045, 0.0092, -0.0067,
+          0.0101, -0.0034, 0.0115, -0.0056, 0.0098, -0.0045, 0.0107, -0.0067, 0.0112, -0.0034,
+          0.0098, -0.0056, 0.0105, -0.0045, 0.0118, -0.0067, 0.0092, -0.0034, 0.0101, -0.0056
+        ]);
+      }
+    };
+
+    loadHistoricalData();
+  }, []);
 
   // Calculate projection when drawdown account or monthly drawdown changes
   useEffect(() => {
     const calculateProjection = () => {
+      if (historicalReturns.length === 0) return;
+
       const NUM_REALIZATIONS = 20;
       const allRealizations: number[][] = [];
+      
+      // Portfolio allocation constants
+      const MARKET_ALLOCATION = 0.8; // 80% in market
+      const BOND_ALLOCATION = 0.2;   // 20% in bonds
+      const RISK_FREE_RATE = 0.03;   // 3% annual risk-free rate
+      const MONTHLY_RISK_FREE = Math.pow(1 + RISK_FREE_RATE, 1/12) - 1; // Convert annual to monthly
       
       // Initialize arrays for each year
       for (let year = 0; year < PROJECTION_YEARS; year++) {
@@ -91,12 +131,15 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return
-            const randomIndex = Math.floor(Math.random() * HISTORICAL_MONTHLY_RETURNS.length);
-            const monthlyReturn = HISTORICAL_MONTHLY_RETURNS[randomIndex];
+            // Get random historical return for market portion
+            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
+            const marketReturn = historicalReturns[randomIndex];
+            
+            // Calculate combined return based on portfolio allocation
+            const combinedReturn = (MARKET_ALLOCATION * marketReturn) + (BOND_ALLOCATION * MONTHLY_RISK_FREE);
             
             // Apply return and subtract drawdown
-            currentValue = currentValue * (1 + monthlyReturn) - monthlyDrawdown;
+            currentValue = currentValue * (1 + combinedReturn) - monthlyDrawdown;
           }
           
           // Store the year-end value for this realization
@@ -128,7 +171,7 @@ function App() {
         const p75Index = Math.floor(sortedValues.length * 0.75);
         const p90Index = Math.floor(sortedValues.length * 0.90);
         
-        const result = {
+        return {
           year: index + 1,
           p10: sortedValues[p10Index],
           p25: sortedValues[p25Index],
@@ -136,29 +179,17 @@ function App() {
           p75: sortedValues[p75Index],
           p90: sortedValues[p90Index]
         };
-
-        console.log(`Year ${index + 1} stats:`, {
-          values: sortedValues,
-          p10Index,
-          p25Index,
-          p50Index,
-          p75Index,
-          p90Index,
-          result
-        });
-
-        return result;
       });
       
       setProjection(yearlyStats);
     };
 
     calculateProjection();
-  }, [drawdownAccount, monthlyDrawdown]);
+  }, [drawdownAccount, monthlyDrawdown, historicalReturns]);
 
   const calculateMonthlyPayment = () => {
-    // Calculate loan amount (80% of house price)
-    const loanAmount = housePrice * 0.8;
+    // Calculate initial loan amount (80% of house price)
+    const initialLoanAmount = housePrice * 0.8;
     
     // Calculate monthly interest rate
     const monthlyInterestRate = interestRate / 12;
@@ -166,16 +197,38 @@ function App() {
     // Calculate number of payments
     const numberOfPayments = LOAN_TERM_YEARS * 12;
     
-    // Calculate monthly mortgage payment using the formula: P = L[c(1 + c)^n]/[(1 + c)^n - 1]
+    // Calculate monthly property tax and insurance (these don't change with loan amount)
+    const monthlyPropertyTax = (housePrice * PROPERTY_TAX_RATE) / 12;
+    const monthlyInsurance = (housePrice * INSURANCE_RATE) / 12;
+    
+    let loanAmount = initialLoanAmount;
+    let additionalDownpaymentNeeded = 0;
+    
+    // If DTI limit is enabled, calculate the maximum allowed loan amount
+    if (limitDTI) {
+      // Calculate maximum allowed monthly payment for 30% DTI
+      const maxAllowedTotalPayment = (0.30 * MONTHLY_INCOME) - OTHER_DEBT;
+      const maxAllowedMortgagePayment = maxAllowedTotalPayment - monthlyPropertyTax - monthlyInsurance;
+      
+      // Calculate the maximum loan amount that would result in this payment
+      const maxLoanAmount = maxAllowedMortgagePayment * 
+        (Math.pow(1 + monthlyInterestRate, numberOfPayments) - 1) / 
+        (monthlyInterestRate * Math.pow(1 + monthlyInterestRate, numberOfPayments));
+      
+      // If the initial loan amount is too high, calculate additional downpayment needed
+      if (maxLoanAmount < initialLoanAmount) {
+        additionalDownpaymentNeeded = initialLoanAmount - maxLoanAmount;
+        loanAmount = maxLoanAmount;
+      }
+    }
+    
+    // Update the additional downpayment state
+    setAdditionalDownpayment(additionalDownpaymentNeeded);
+    
+    // Calculate monthly mortgage payment with the adjusted loan amount
     const monthlyMortgagePayment = loanAmount * 
       (monthlyInterestRate * Math.pow(1 + monthlyInterestRate, numberOfPayments)) / 
       (Math.pow(1 + monthlyInterestRate, numberOfPayments) - 1);
-    
-    // Calculate monthly property tax
-    const monthlyPropertyTax = (housePrice * PROPERTY_TAX_RATE) / 12;
-    
-    // Calculate monthly insurance
-    const monthlyInsurance = (housePrice * INSURANCE_RATE) / 12;
     
     // Calculate principal and interest components
     const monthlyInterest = loanAmount * monthlyInterestRate;
@@ -183,6 +236,9 @@ function App() {
     
     // Total monthly payment
     const totalMonthlyPayment = monthlyMortgagePayment + monthlyPropertyTax + monthlyInsurance;
+    
+    // Calculate true DTI
+    const trueDTI = (totalMonthlyPayment + OTHER_DEBT) / MONTHLY_INCOME;
     
     // Calculate paydown scenario
     const paydownLoanAmount = Math.max(0, loanAmount - drawdownAccount);
@@ -203,6 +259,11 @@ function App() {
     // Calculate remaining liquid value after down payment
     const downPayment = housePrice * 0.2;
     setRemainingLiquid(STARTING_LIQUID - downPayment);
+    
+    // Adjust drawdown account if it's at default value and additional downpayment is needed
+    if (limitDTI && drawdownAccount === 1000000 && additionalDownpaymentNeeded > 0) {
+      setDrawdownAccount(1000000 - additionalDownpaymentNeeded);
+    }
   };
 
   useEffect(() => {
@@ -251,8 +312,8 @@ function App() {
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
             // Get random historical return
-            const randomIndex = Math.floor(Math.random() * HISTORICAL_MONTHLY_RETURNS.length);
-            const monthlyReturn = HISTORICAL_MONTHLY_RETURNS[randomIndex];
+            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
+            const monthlyReturn = historicalReturns[randomIndex];
             
             // Apply return and add contribution minus payment
             currentValue = currentValue * (1 + monthlyReturn) + (MONTHLY_CONTRIBUTION - effectiveMonthlyPayment);
@@ -301,7 +362,7 @@ function App() {
     };
 
     calculateLiquidProjection();
-  }, [remainingLiquid, effectiveMonthlyPayment]);
+  }, [remainingLiquid, effectiveMonthlyPayment, historicalReturns]);
 
   // Calculate total projection when either projection changes
   useEffect(() => {
@@ -348,7 +409,13 @@ function App() {
               </Typography>
               <Slider
                 value={housePrice}
-                onChange={(_, value) => setHousePrice(value as number)}
+                onChange={(_, value) => {
+                  setHousePrice(value as number);
+                  // Reset drawdown account to default when house price changes and DTI limit is enabled
+                  if (limitDTI) {
+                    setDrawdownAccount(1000000);
+                  }
+                }}
                 min={2000000}
                 max={4000000}
                 step={100000}
@@ -415,6 +482,24 @@ function App() {
                 ]}
               />
             </Box>
+
+            <Box>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={limitDTI}
+                    onChange={(_, checked) => setLimitDTI(checked)}
+                    color="primary"
+                  />
+                }
+                label="Limit DTI to 30%"
+              />
+              {limitDTI && additionalDownpayment > 0 && (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1, ml: 2 }}>
+                  Additional downpayment needed: {formatCurrency(additionalDownpayment)}
+                </Typography>
+              )}
+            </Box>
           </Box>
         </Paper>
 
@@ -448,6 +533,18 @@ function App() {
               <Typography variant="body1">True DTI Ratio:</Typography>
               <Typography variant="body1">{formatPercentage((monthlyPayment + OTHER_DEBT) / MONTHLY_INCOME)}</Typography>
             </Box>
+            {((monthlyPayment + OTHER_DEBT) / MONTHLY_INCOME) > 0.22 && (
+              <>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body1">Required Income for 22% DTI:</Typography>
+                  <Typography variant="body1">{formatCurrency((monthlyPayment + OTHER_DEBT) / 0.22 * 12)}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body1">Required Yearly Growth Rate:</Typography>
+                  <Typography variant="body1">{formatPercentage(Math.pow((monthlyPayment + OTHER_DEBT) / (0.22 * MONTHLY_INCOME), 1/8) - 1)}</Typography>
+                </Box>
+              </>
+            )}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
               <Typography variant="body1">Paydown DTI Ratio:</Typography>
               <Typography variant="body1">{formatPercentage((paydownMonthlyPayment + OTHER_DEBT) / MONTHLY_INCOME)}</Typography>
