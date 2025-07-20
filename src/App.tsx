@@ -942,7 +942,6 @@ function App() {
         console.log(`✓ ${formatCurrency(startingPrincipal)} starting principal: ${(successRate * 100).toFixed(1)}% success rate (${successCount}/${NUM_REALIZATIONS} simulations)`);
       } else {
         console.log(`✗ ${formatCurrency(startingPrincipal)} starting principal: ${(successRate * 100).toFixed(1)}% success rate (${successCount}/${NUM_REALIZATIONS} simulations) - BELOW 95% THRESHOLD`);
-        break;
       }
     }
     
@@ -1016,7 +1015,6 @@ function App() {
         console.log(`✓ ${formatCurrency(startingPrincipal)} starting principal: ${(successRate * 100).toFixed(1)}% success rate (${successCount}/${NUM_REALIZATIONS} simulations)`);
       } else {
         console.log(`✗ ${formatCurrency(startingPrincipal)} starting principal: ${(successRate * 100).toFixed(1)}% success rate (${successCount}/${NUM_REALIZATIONS} simulations) - BELOW 80% THRESHOLD`);
-        break;
       }
     }
     
@@ -1090,7 +1088,6 @@ function App() {
         console.log(`✓ ${formatCurrency(startingPrincipal)} starting principal: ${(successRate * 100).toFixed(1)}% success rate (${successCount}/${NUM_REALIZATIONS} simulations)`);
       } else {
         console.log(`✗ ${formatCurrency(startingPrincipal)} starting principal: ${(successRate * 100).toFixed(1)}% success rate (${successCount}/${NUM_REALIZATIONS} simulations) - BELOW 95% THRESHOLD`);
-        break;
       }
     }
     
@@ -1164,7 +1161,6 @@ function App() {
         console.log(`✓ ${formatCurrency(startingPrincipal)} starting principal: ${(successRate * 100).toFixed(1)}% success rate (${successCount}/${NUM_REALIZATIONS} simulations)`);
       } else {
         console.log(`✗ ${formatCurrency(startingPrincipal)} starting principal: ${(successRate * 100).toFixed(1)}% success rate (${successCount}/${NUM_REALIZATIONS} simulations) - BELOW 80% THRESHOLD`);
-        break;
       }
     }
     
