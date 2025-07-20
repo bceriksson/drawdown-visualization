@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Container, 
   Typography, 
@@ -89,6 +89,7 @@ function App() {
     p75: number,
     p90: number
   }[]>([]);
+  const [garchSimulationData, setGarchSimulationData] = useState<number[]>([]);
 
   // Constants
   const LOAN_TERM_YEARS = 30;
@@ -164,6 +165,68 @@ function App() {
     loadHistoricalData();
   }, []);
 
+  // Generate GARCH simulation data
+  useEffect(() => {
+    const generateGarchData = () => {
+      // GARCH(1,1) simulation calibrated to match S&P 500 characteristics
+      const NUM_SIMULATIONS = 10000;
+      const garchData: number[] = [];
+      
+      // Optimized GARCH parameters from Python optimization
+      const omega = 0.0002;   // Constant
+      const alpha = 0.15;     // ARCH parameter
+      const beta = 0.80;      // GARCH parameter
+      const drift = 0.010;    // Monthly drift term (~1.0% monthly return)
+      const volatilityScale = 0.52; // Volatility scaling factor to match historical std
+      
+      // Initial variance calibrated to match S&P 500 monthly volatility
+      let variance = 0.003;   // Initial variance
+      
+      for (let i = 0; i < NUM_SIMULATIONS; i++) {
+        // Generate random shock using Box-Muller transform for normal distribution
+        const u1 = Math.random();
+        const u2 = Math.random();
+        const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+        
+        // Apply volatility scaling to control the overall volatility
+        const shock = z0 * volatilityScale;
+        
+        // Calculate return with drift term
+        const return_val = drift + shock * Math.sqrt(variance);
+        garchData.push(return_val);
+        
+        // Update variance for next period (GARCH(1,1) equation)
+        // Use only the shock component, not the total return
+        variance = omega + alpha * Math.pow(shock, 2) + beta * variance;
+        
+        // Ensure variance doesn't explode or collapse
+        variance = Math.max(0.0001, Math.min(0.01, variance));
+      }
+      
+      setGarchSimulationData(garchData);
+      console.log('GARCH simulation data generated:', garchData.length, 'data points');
+      
+      // Log GARCH statistics for comparison
+      const mean = garchData.reduce((a, b) => a + b, 0) / garchData.length;
+      const sorted = [...garchData].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      const p90 = sorted[Math.floor(sorted.length * 0.9)];
+      const p10 = sorted[Math.floor(sorted.length * 0.1)];
+      const p95 = sorted[Math.floor(sorted.length * 0.95)];
+      const p05 = sorted[Math.floor(sorted.length * 0.05)];
+      
+      console.log('GARCH Simulation Statistics:');
+      console.log('Mean monthly return:', (mean * 100).toFixed(2) + '%');
+      console.log('Median monthly return:', (median * 100).toFixed(2) + '%');
+      console.log('5th percentile:', (p05 * 100).toFixed(2) + '%');
+      console.log('10th percentile:', (p10 * 100).toFixed(2) + '%');
+      console.log('90th percentile:', (p90 * 100).toFixed(2) + '%');
+      console.log('95th percentile:', (p95 * 100).toFixed(2) + '%');
+    };
+    
+    generateGarchData();
+  }, []);
+
   // Calculate projection when drawdown account or monthly drawdown changes
   useEffect(() => {
     const calculateProjection = () => {
@@ -178,6 +241,9 @@ function App() {
       const RISK_FREE_RATE = 0.03;   // 3% annual risk-free rate
       const MONTHLY_RISK_FREE = Math.pow(1 + RISK_FREE_RATE, 1/12) - 1; // Convert annual to monthly
       
+      console.log('=== MAIN PROJECTION USING GARCH SIMULATION ===');
+      console.log(`Market allocation: ${MARKET_ALLOCATION * 100}% GARCH, ${BOND_ALLOCATION * 100}% bonds`);
+      
       // Initialize arrays for each year
       for (let year = 0; year < PROJECTION_YEARS; year++) {
         allRealizations[year] = [];
@@ -190,9 +256,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return for market portion
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const marketReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return for market portion
+            const marketReturn = generateGarchReturn();
             
             // Calculate combined return based on portfolio allocation
             const combinedReturn = (MARKET_ALLOCATION * marketReturn) + (BOND_ALLOCATION * MONTHLY_RISK_FREE);
@@ -339,11 +404,7 @@ function App() {
   };
 
   const formatPercentage = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'percent',
-      minimumFractionDigits: 1,
-      maximumFractionDigits: 1,
-    }).format(value);
+    return `${(value * 100).toFixed(2)}%`;
   };
 
   // Calculate effective monthly payment (after drawdown)
@@ -371,8 +432,8 @@ function App() {
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
             // Get random historical return
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and add contribution minus payment
             currentValue = currentValue * (1 + monthlyReturn) + (MONTHLY_CONTRIBUTION - effectiveMonthlyPayment);
@@ -465,7 +526,7 @@ function App() {
 
     console.log('=== DRAWDOWN CALCULATOR START ===');
     console.log(`Starting account value: ${formatCurrency(accountValue)}`);
-    console.log(`Using ${historicalReturns.length} historical monthly returns`);
+    console.log(`Using GARCH simulation for monthly returns`);
     console.log(`Running ${NUM_REALIZATIONS} simulations for each test amount`);
     
     // Create test amounts for different confidence levels
@@ -489,9 +550,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - monthlyDrawdown;
@@ -527,9 +587,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - monthlyDrawdown;
@@ -563,9 +622,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - monthlyDrawdown;
@@ -601,9 +659,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - monthlyDrawdown;
@@ -637,9 +694,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - monthlyDrawdown;
@@ -675,9 +731,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - monthlyDrawdown;
@@ -711,9 +766,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - monthlyDrawdown;
@@ -749,9 +803,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - monthlyDrawdown;
@@ -785,9 +838,8 @@ function App() {
       // Simulate 15 years of monthly returns
       for (let year = 0; year < PROJECTION_YEARS; year++) {
         for (let month = 0; month < 12; month++) {
-          // Get random historical return (100% stocks)
-          const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-          const monthlyReturn = historicalReturns[randomIndex];
+          // Get GARCH simulated return (100% stocks)
+          const monthlyReturn = generateGarchReturn();
           
           // Apply return and subtract drawdown
           currentValue = currentValue * (1 + monthlyReturn) - histogramDrawdown;
@@ -837,13 +889,14 @@ function App() {
     
     console.log('\n=== FINAL RESULTS ===');
     console.log(`Principal > 0 (95% confidence): ${formatCurrency(principalGreaterThanZero)}/month (${formatCurrency(principalGreaterThanZero * 12)}/year)`);
-    console.log(`Principal >= Starting Value (95% confidence): ${formatCurrency(principalSameOrGreater)}/month (${formatCurrency(principalSameOrGreater * 12)}/year)`);
-    console.log('=== DRAWDOWN CALCULATOR END ===\n');
+    console.log(`Principal > 0 (80% confidence): ${formatCurrency(principalGreaterThanZero80)}/month (${formatCurrency(principalGreaterThanZero80 * 12)}/year)`);
+    console.log(`Principal >= starting value (95% confidence): ${formatCurrency(principalSameOrGreater)}/month (${formatCurrency(principalSameOrGreater * 12)}/year)`);
+    console.log(`Principal >= starting value (80% confidence): ${formatCurrency(principalSameOrGreater80)}/month (${formatCurrency(principalSameOrGreater80 * 12)}/year)`);
     
     setCalculatorResults({
       principalGreaterThanZero,
-      principalSameOrGreater,
       principalGreaterThanZero80,
+      principalSameOrGreater,
       principalSameOrGreater80,
       histogramData: histogramDataWithCumulative
     });
@@ -860,7 +913,7 @@ function App() {
 
     console.log('=== REVERSE CALCULATOR START ===');
     console.log(`Desired monthly drawdown: ${formatCurrency(desiredMonthlyDrawdown)}`);
-    console.log(`Using ${historicalReturns.length} historical monthly returns`);
+    console.log(`Using GARCH simulation for monthly returns`);
     console.log(`Running ${NUM_REALIZATIONS} simulations for each test principal amount`);
     
     // Test different starting principal amounts for different confidence levels
@@ -884,9 +937,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - desiredMonthlyDrawdown;
@@ -922,9 +974,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - desiredMonthlyDrawdown;
@@ -957,9 +1008,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - desiredMonthlyDrawdown;
@@ -995,9 +1045,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - desiredMonthlyDrawdown;
@@ -1030,9 +1079,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - desiredMonthlyDrawdown;
@@ -1068,9 +1116,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - desiredMonthlyDrawdown;
@@ -1103,9 +1150,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - desiredMonthlyDrawdown;
@@ -1141,9 +1187,8 @@ function App() {
         // Simulate 15 years of monthly returns
         for (let year = 0; year < PROJECTION_YEARS; year++) {
           for (let month = 0; month < 12; month++) {
-            // Get random historical return (100% stocks)
-            const randomIndex = Math.floor(Math.random() * historicalReturns.length);
-            const monthlyReturn = historicalReturns[randomIndex];
+            // Get GARCH simulated return (100% stocks)
+            const monthlyReturn = generateGarchReturn();
             
             // Apply return and subtract drawdown
             currentValue = currentValue * (1 + monthlyReturn) - desiredMonthlyDrawdown;
@@ -1164,19 +1209,117 @@ function App() {
       }
     }
     
-    console.log('\n=== REVERSE CALCULATOR RESULTS ===');
-    console.log(`Principal for positive end (95% confidence): ${formatCurrency(principalForPositiveEnd)}`);
-    console.log(`Principal for positive end (80% confidence): ${formatCurrency(principalForPositiveEnd80)}`);
-    console.log(`Principal for maintained value (95% confidence): ${formatCurrency(principalForMaintainedValue)}`);
-    console.log(`Principal for maintained value (80% confidence): ${formatCurrency(principalForMaintainedValue80)}`);
-    console.log('=== REVERSE CALCULATOR END ===\n');
+    console.log('\n=== FINAL RESULTS ===');
+    console.log(`Principal needed for positive end value (95% confidence): ${formatCurrency(principalForPositiveEnd)}`);
+    console.log(`Principal needed for positive end value (80% confidence): ${formatCurrency(principalForPositiveEnd80)}`);
+    console.log(`Principal needed to maintain starting value (95% confidence): ${formatCurrency(principalForMaintainedValue)}`);
+    console.log(`Principal needed to maintain starting value (80% confidence): ${formatCurrency(principalForMaintainedValue80)}`);
     
     setReverseCalculatorResults({
       principalForPositiveEnd,
-      principalForMaintainedValue,
       principalForPositiveEnd80,
+      principalForMaintainedValue,
       principalForMaintainedValue80
     });
+  };
+
+  // GARCH variance state for persistent variance across calls
+  const garchVarianceRef = useRef(0.003);
+
+  // Helper function to generate GARCH returns on-demand
+  const generateGarchReturn = () => {
+    // Optimized GARCH parameters from Python optimization
+    const omega = 0.0002;   // Constant
+    const alpha = 0.15;     // ARCH parameter
+    const beta = 0.80;      // GARCH parameter
+    const drift = 0.010;    // Monthly drift term (~1.0% monthly return)
+    const volatilityScale = 0.52; // Volatility scaling factor to match historical std
+    
+    // Generate random shock using Box-Muller transform for normal distribution
+    const u1 = Math.random();
+    const u2 = Math.random();
+    const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    
+    // Apply volatility scaling to control the overall volatility
+    const shock = z0 * volatilityScale;
+    
+    // Calculate return with drift term
+    const return_val = drift + shock * Math.sqrt(garchVarianceRef.current);
+    
+    // Update variance for next period (GARCH(1,1) equation)
+    garchVarianceRef.current = omega + alpha * Math.pow(shock, 2) + beta * garchVarianceRef.current;
+    
+    // Ensure variance doesn't explode or collapse
+    garchVarianceRef.current = Math.max(0.0001, Math.min(0.01, garchVarianceRef.current));
+    
+    return return_val;
+  };
+
+  // Helper functions for Diagnostics tab
+  const generateHistogramData = (data: number[], title: string, sharedRange?: { min: number; max: number }) => {
+    if (data.length === 0) return [];
+    
+    const minValue = sharedRange ? sharedRange.min : Math.min(...data);
+    const maxValue = sharedRange ? sharedRange.max : Math.max(...data);
+    
+    // Create bins with appropriate intervals based on data range
+    const range = maxValue - minValue;
+    const binCount = Math.min(20, Math.max(10, Math.floor(data.length / 50)));
+    const binSize = range / binCount;
+    
+    const histogramData = Array.from({ length: binCount }, (_, i) => {
+      const rangeStart = minValue + i * binSize;
+      const rangeEnd = minValue + (i + 1) * binSize;
+      const count = data.filter(value => value >= rangeStart && value < rangeEnd).length;
+      
+      return {
+        range: `${(rangeStart * 100).toFixed(1)}% - ${(rangeEnd * 100).toFixed(1)}%`,
+        count,
+        rangeStart,
+        rangeEnd
+      };
+    });
+    
+    return histogramData;
+  };
+
+  // Generate shared histogram data for both datasets
+  const generateSharedHistogramData = () => {
+    if (historicalReturns.length === 0 || garchSimulationData.length === 0) {
+      return { historical: [], garch: [], sharedRange: null };
+    }
+    
+    // Calculate shared range across both datasets
+    const allData = [...historicalReturns, ...garchSimulationData];
+    const minValue = Math.min(...allData);
+    const maxValue = Math.max(...allData);
+    const sharedRange = { min: minValue, max: maxValue };
+    
+    const historicalData = generateHistogramData(historicalReturns, 'Historical Returns', sharedRange);
+    const garchData = generateHistogramData(garchSimulationData, 'GARCH Simulation', sharedRange);
+    
+    return { historical: historicalData, garch: garchData, sharedRange };
+  };
+
+  const calculateMean = (data: number[]) => {
+    if (data.length === 0) return 0;
+    return data.reduce((a, b) => a + b, 0) / data.length;
+  };
+
+  const calculateMedian = (data: number[]) => {
+    if (data.length === 0) return 0;
+    const sorted = [...data].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0 
+      ? (sorted[mid - 1] + sorted[mid]) / 2 
+      : sorted[mid];
+  };
+
+  const calculatePercentile = (data: number[], percentile: number) => {
+    if (data.length === 0) return 0;
+    const sorted = [...data].sort((a, b) => a - b);
+    const index = Math.floor(sorted.length * (percentile / 100));
+    return sorted[index];
   };
 
   return (
@@ -1190,6 +1333,7 @@ function App() {
           <Tabs value={tabValue} onChange={handleTabChange} aria-label="calculator tabs">
             <Tab label="Main" />
             <Tab label="Calculator" />
+            <Tab label="Diagnostics" />
           </Tabs>
         </Box>
 
@@ -1782,6 +1926,95 @@ function App() {
               )}
             </Paper>
           )}
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={2}>
+          <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Market Data Diagnostics
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Analysis of historical S&P 500 monthly returns and GARCH simulation data.
+            </Typography>
+            
+            {(() => {
+              const sharedData = generateSharedHistogramData();
+              const tickInterval = Math.max(0, Math.floor(sharedData.historical.length / 8) - 1);
+              return (
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
+                  {/* Historical Returns */}
+                  <Paper elevation={1} sx={{ p: 2 }}>
+                    <Typography variant="h6" gutterBottom>
+                      Historical S&P 500 Returns
+                    </Typography>
+                    <Box sx={{ height: 300, mb: 2 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={sharedData.historical}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis 
+                            dataKey="range" 
+                            angle={-45} 
+                            textAnchor="end" 
+                            height={80}
+                            interval={tickInterval}
+                          />
+                          <YAxis />
+                          <Tooltip />
+                          <Bar dataKey="count" fill="#8884d8" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </Box>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                      <Typography variant="body2">Mean: {formatPercentage(calculateMean(historicalReturns))}</Typography>
+                      <Typography variant="body2">Median: {formatPercentage(calculateMedian(historicalReturns))}</Typography>
+                      <Typography variant="body2">P05: {formatPercentage(calculatePercentile(historicalReturns, 5))}</Typography>
+                      <Typography variant="body2">P10: {formatPercentage(calculatePercentile(historicalReturns, 10))}</Typography>
+                      <Typography variant="body2">P90: {formatPercentage(calculatePercentile(historicalReturns, 90))}</Typography>
+                      <Typography variant="body2">P95: {formatPercentage(calculatePercentile(historicalReturns, 95))}</Typography>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      Data points: {historicalReturns.length}
+                    </Typography>
+                  </Paper>
+
+                  {/* GARCH Simulation Data */}
+                  <Paper elevation={1} sx={{ p: 2 }}>
+                    <Typography variant="h6" gutterBottom>
+                      GARCH Simulation Data
+                    </Typography>
+                    <Box sx={{ height: 300, mb: 2 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={sharedData.garch}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis 
+                            dataKey="range" 
+                            angle={-45} 
+                            textAnchor="end" 
+                            height={80}
+                            interval={tickInterval}
+                          />
+                          <YAxis />
+                          <Tooltip />
+                          <Bar dataKey="count" fill="#82ca9d" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </Box>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                      <Typography variant="body2">Mean: {formatPercentage(calculateMean(garchSimulationData))}</Typography>
+                      <Typography variant="body2">Median: {formatPercentage(calculateMedian(garchSimulationData))}</Typography>
+                      <Typography variant="body2">P05: {formatPercentage(calculatePercentile(garchSimulationData, 5))}</Typography>
+                      <Typography variant="body2">P10: {formatPercentage(calculatePercentile(garchSimulationData, 10))}</Typography>
+                      <Typography variant="body2">P90: {formatPercentage(calculatePercentile(garchSimulationData, 90))}</Typography>
+                      <Typography variant="body2">P95: {formatPercentage(calculatePercentile(garchSimulationData, 95))}</Typography>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      Data points: {garchSimulationData.length}
+                    </Typography>
+                  </Paper>
+                </Box>
+              );
+            })()}
+          </Paper>
         </TabPanel>
       </Box>
     </Container>
