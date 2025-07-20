@@ -822,15 +822,14 @@ function App() {
         console.log(`✓ ${formatCurrency(monthlyDrawdown)}/month: ${(successRate * 100).toFixed(1)}% success rate (${successCount}/${NUM_REALIZATIONS} simulations)`);
       } else {
         console.log(`✗ ${formatCurrency(monthlyDrawdown)}/month: ${(successRate * 100).toFixed(1)}% success rate (${successCount}/${NUM_REALIZATIONS} simulations) - BELOW 80% THRESHOLD`);
-        break;
       }
     }
     
     console.log('\n=== GENERATING HISTOGRAM DATA ===');
-    const histogramDrawdown = 5000; // Fixed amount for histogram
-    console.log(`Using ${formatCurrency(histogramDrawdown)}/month for histogram distribution`);
+    const histogramDrawdown = principalGreaterThanZero; // Use the calculated 95% confidence withdrawal amount
+    console.log(`Using ${formatCurrency(histogramDrawdown)}/month for histogram distribution (95% confidence)`);
     
-    // Generate histogram data for $5,000 monthly drawdown
+    // Generate histogram data for the calculated 95% confidence withdrawal amount
     const finalValues: number[] = [];
     for (let realization = 0; realization < NUM_REALIZATIONS; realization++) {
       let currentValue = accountValue;
@@ -1805,7 +1804,7 @@ function App() {
                   </Box>
                   
                   <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
-                    Distribution of Final Values ($5,000 monthly drawdown)
+                    Distribution of Final Values ({formatCurrency(calculatorResults.principalGreaterThanZero)} monthly drawdown - 95% confidence)
                   </Typography>
                   <Box sx={{ height: 400, mb: 2 }}>
                     <ResponsiveContainer width="100%" height="100%">
@@ -1838,7 +1837,7 @@ function App() {
                   </Box>
                   
                   <Typography variant="body2" color="text.secondary">
-                    Based on 1,000 simulations using historical S&P 500 monthly returns over 15 years.
+                    Based on 1,000 simulations using GARCH simulation over 15 years.
                   </Typography>
                 </Box>
               )}
@@ -1851,7 +1850,7 @@ function App() {
                 Required Principal Calculator
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Calculate the minimum starting principal needed to support a desired monthly drawdown using 100% stock allocation.
+                Calculate the minimum starting principal needed to support a desired monthly drawdown using 100% stock allocation with GARCH simulation.
               </Typography>
               
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 3 }}>
@@ -1920,7 +1919,7 @@ function App() {
                   </Box>
                   
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                    Based on 1,000 simulations using historical S&P 500 monthly returns over 15 years.
+                    Based on 1,000 simulations using GARCH simulation over 15 years.
                   </Typography>
                 </Box>
               )}
