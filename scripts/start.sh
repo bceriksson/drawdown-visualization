@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# Install Python dependencies if not already installed
+# Activate virtual environment and install Python dependencies if not already installed
+source venv/bin/activate
 pip install -r requirements.txt
 
 # Run Python script to fetch S&P 500 data

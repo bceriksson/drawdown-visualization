@@ -172,15 +172,20 @@ function App() {
       const NUM_SIMULATIONS = 10000;
       const garchData: number[] = [];
       
-      // Optimized GARCH parameters from Python optimization
-      const omega = 0.0002;   // Constant
-      const alpha = 0.15;     // ARCH parameter
-      const beta = 0.80;      // GARCH parameter
-      const drift = 0.010;    // Monthly drift term (~1.0% monthly return)
-      const volatilityScale = 0.52; // Volatility scaling factor to match historical std
+      // Optimized GARCH(3,2) parameters for S&P 500 Total Return data
+      // Based on multiple realization testing with improved stationarity
+      const omega = 0.00012;  // Constant
+      const alpha1 = 0.06;    // ARCH parameter (lag 1)
+      const alpha2 = 0.04;    // ARCH parameter (lag 2)
+      const alpha3 = 0.02;    // ARCH parameter (lag 3)
+      const beta1 = 0.80;     // GARCH parameter (lag 1)
+      const beta2 = 0.06;     // GARCH parameter (lag 2)
+      const drift = 0.0098;   // Monthly drift term (~0.98% monthly return)
+      const volatilityScale = 0.45; // Volatility scaling factor to match historical std
       
-      // Initial variance calibrated to match S&P 500 monthly volatility
-      let variance = 0.003;   // Initial variance
+      // Initialize variance and shock histories for GARCH(3,2)
+      let varianceHistory = [0.002, 0.002, 0.002];   // Initial variance history
+      let shockHistory = [0.0, 0.0, 0.0];            // Initial shock history
       
       for (let i = 0; i < NUM_SIMULATIONS; i++) {
         // Generate random shock using Box-Muller transform for normal distribution
@@ -191,16 +196,28 @@ function App() {
         // Apply volatility scaling to control the overall volatility
         const shock = z0 * volatilityScale;
         
-        // Calculate return with drift term
-        const return_val = drift + shock * Math.sqrt(variance);
+        // Calculate return with drift term using current variance
+        const return_val = drift + shock * Math.sqrt(varianceHistory[2]);
         garchData.push(return_val);
         
-        // Update variance for next period (GARCH(1,1) equation)
-        // Use only the shock component, not the total return
-        variance = omega + alpha * Math.pow(shock, 2) + beta * variance;
+        // Update variance for next period (GARCH(3,2) equation)
+        const newVariance = omega + 
+                           alpha1 * Math.pow(shockHistory[2], 2) + 
+                           alpha2 * Math.pow(shockHistory[1], 2) + 
+                           alpha3 * Math.pow(shockHistory[0], 2) + 
+                           beta1 * varianceHistory[2] + 
+                           beta2 * varianceHistory[1];
         
         // Ensure variance doesn't explode or collapse
-        variance = Math.max(0.0001, Math.min(0.01, variance));
+        const constrainedVariance = Math.max(0.0001, Math.min(0.01, newVariance));
+        
+        // Update histories
+        varianceHistory.push(constrainedVariance);
+        shockHistory.push(shock);
+        
+        // Keep only the last 3 values for memory efficiency
+        varianceHistory = varianceHistory.slice(-3);
+        shockHistory = shockHistory.slice(-3);
       }
       
       setGarchSimulationData(garchData);
@@ -1223,16 +1240,22 @@ function App() {
   };
 
   // GARCH variance state for persistent variance across calls
-  const garchVarianceRef = useRef(0.003);
+  const garchVarianceRef = useRef(0.002);
+  const garchVarianceHistoryRef = useRef([0.002, 0.002, 0.002]);
+  const garchShockHistoryRef = useRef([0.0, 0.0, 0.0]);
 
-  // Helper function to generate GARCH returns on-demand
+  // Helper function to generate GARCH(3,2) returns on-demand
   const generateGarchReturn = () => {
-    // Optimized GARCH parameters from Python optimization
-    const omega = 0.0002;   // Constant
-    const alpha = 0.15;     // ARCH parameter
-    const beta = 0.80;      // GARCH parameter
-    const drift = 0.010;    // Monthly drift term (~1.0% monthly return)
-    const volatilityScale = 0.52; // Volatility scaling factor to match historical std
+    // Optimized GARCH(3,2) parameters for S&P 500 Total Return data
+    // Based on multiple realization testing with improved stationarity
+    const omega = 0.00012;  // Constant
+    const alpha1 = 0.06;    // ARCH parameter (lag 1)
+    const alpha2 = 0.04;    // ARCH parameter (lag 2) 
+    const alpha3 = 0.02;    // ARCH parameter (lag 3)
+    const beta1 = 0.80;     // GARCH parameter (lag 1)
+    const beta2 = 0.06;     // GARCH parameter (lag 2)
+    const drift = 0.0098;   // Monthly drift term (~0.98% monthly return)
+    const volatilityScale = 0.45; // Volatility scaling factor to match historical std
     
     // Generate random shock using Box-Muller transform for normal distribution
     const u1 = Math.random();
@@ -1242,14 +1265,27 @@ function App() {
     // Apply volatility scaling to control the overall volatility
     const shock = z0 * volatilityScale;
     
-    // Calculate return with drift term
-    const return_val = drift + shock * Math.sqrt(garchVarianceRef.current);
+    // Calculate return with drift term using current variance
+    const return_val = drift + shock * Math.sqrt(garchVarianceHistoryRef.current[2]);
     
-    // Update variance for next period (GARCH(1,1) equation)
-    garchVarianceRef.current = omega + alpha * Math.pow(shock, 2) + beta * garchVarianceRef.current;
+    // Update variance for next period (GARCH(3,2) equation)
+    const newVariance = omega + 
+                       alpha1 * Math.pow(garchShockHistoryRef.current[2], 2) + 
+                       alpha2 * Math.pow(garchShockHistoryRef.current[1], 2) + 
+                       alpha3 * Math.pow(garchShockHistoryRef.current[0], 2) + 
+                       beta1 * garchVarianceHistoryRef.current[2] + 
+                       beta2 * garchVarianceHistoryRef.current[1];
     
     // Ensure variance doesn't explode or collapse
-    garchVarianceRef.current = Math.max(0.0001, Math.min(0.01, garchVarianceRef.current));
+    const constrainedVariance = Math.max(0.0001, Math.min(0.01, newVariance));
+    
+    // Update histories
+    garchVarianceHistoryRef.current.push(constrainedVariance);
+    garchShockHistoryRef.current.push(shock);
+    
+    // Keep only the last 3 values for memory efficiency
+    garchVarianceHistoryRef.current = garchVarianceHistoryRef.current.slice(-3);
+    garchShockHistoryRef.current = garchShockHistoryRef.current.slice(-3);
     
     return return_val;
   };
@@ -1570,7 +1606,7 @@ function App() {
               Drawdown Account Projection (15 Years)
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Based on 20 realizations using historical S&P 500 monthly returns from the past 50 years
+              Based on 20 realizations using historical S&P 500 Total Return monthly returns (includes dividends) from the past 50 years
             </Typography>
             <TableContainer>
               <Table>
@@ -1618,7 +1654,7 @@ function App() {
               Overall Liquid Account Projection (15 Years)
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Based on 20 realizations using historical S&P 500 monthly returns from the past 50 years.
+              Based on 20 realizations using historical S&P 500 Total Return monthly returns (includes dividends) from the past 50 years.
               Starting with remaining liquid value, adding monthly contribution of {formatCurrency(MONTHLY_CONTRIBUTION)} minus effective monthly payment.
             </Typography>
             <TableContainer>
@@ -1735,7 +1771,7 @@ function App() {
                 Safe Withdrawal Calculator
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Calculate safe monthly drawdown amounts using 100% stock allocation and historical S&P 500 returns.
+                Calculate safe monthly drawdown amounts using 100% stock allocation and historical S&P 500 Total Return data (includes dividends).
               </Typography>
               
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 3 }}>
@@ -1850,7 +1886,7 @@ function App() {
                 Required Principal Calculator
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Calculate the minimum starting principal needed to support a desired monthly drawdown using 100% stock allocation with GARCH simulation.
+                Calculate the minimum starting principal needed to support a desired monthly drawdown using 100% stock allocation with GARCH simulation based on S&P 500 Total Return data.
               </Typography>
               
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 3 }}>
@@ -1933,7 +1969,7 @@ function App() {
               Market Data Diagnostics
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Analysis of historical S&P 500 monthly returns and GARCH simulation data.
+              Analysis of historical S&P 500 Total Return monthly returns (includes dividends) and GARCH simulation data.
             </Typography>
             
             {(() => {
@@ -1944,7 +1980,7 @@ function App() {
                   {/* Historical Returns */}
                   <Paper elevation={1} sx={{ p: 2 }}>
                     <Typography variant="h6" gutterBottom>
-                      Historical S&P 500 Returns
+                      Historical S&P 500 Total Return
                     </Typography>
                     <Box sx={{ height: 300, mb: 2 }}>
                       <ResponsiveContainer width="100%" height="100%">

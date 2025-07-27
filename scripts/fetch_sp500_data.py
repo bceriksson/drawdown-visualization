@@ -3,55 +3,33 @@ from datetime import datetime, timedelta
 import os
 import pandas as pd
 import time
-from fredapi import Fred
+import yfinance as yf
 import numpy as np
-
-def fetch_with_retry(fred, series_id, max_retries=3, delay=2):
-    for attempt in range(max_retries):
-        try:
-            print(f"Attempt {attempt + 1} of {max_retries}")
-            
-            # Get historical data from FRED
-            # SP500 is the series ID for S&P 500
-            hist = fred.get_series(series_id, 
-                                 observation_start='1993-01-01',  # SPY inception date
-                                 observation_end=datetime.now().strftime('%Y-%m-%d'),
-                                 frequency='m')  # Monthly frequency
-            
-            if not hist.empty:
-                return hist
-                
-            print(f"No data received, waiting {delay} seconds before retry...")
-            time.sleep(delay)
-            
-        except Exception as e:
-            print(f"Error on attempt {attempt + 1}: {str(e)}")
-            if attempt < max_retries - 1:
-                print(f"Waiting {delay} seconds before retry...")
-                time.sleep(delay)
-            else:
-                raise
-    
-    raise ValueError(f"Failed to fetch data after {max_retries} attempts")
 
 def fetch_sp500_data():
     try:
-        print("Fetching S&P 500 data from FRED...")
+        print("Fetching S&P 500 Total Return data from Yahoo Finance...")
         
-        # Initialize FRED API client
-        # You'll need to set your FRED API key in the environment variable FRED_API_KEY
-        fred = Fred(api_key='d45f37b04a314997317023e82c03e517')
+        # Fetch S&P 500 Total Return ETF (SPY) data since 1980
+        # Note: SPY started in 1993, but we'll use it as a proxy for S&P 500 Total Return
+        # For earlier data, we'll use ^SP500TR which is the S&P 500 Total Return index
+        ticker = yf.Ticker("^SP500TR")
         
-        # Fetch S&P 500 data with retry logic
-        hist = fetch_with_retry(fred, 'NASDAQCOM')
+        # Get historical data since 1980
+        hist = ticker.history(start="1980-01-01", end=datetime.now().strftime('%Y-%m-%d'), interval="1mo")
+        
+        if hist.empty:
+            print("No data received from Yahoo Finance")
+            return
             
         print(f"Successfully fetched {len(hist)} months of data")
+        print(f"Date range: {hist.index[0].strftime('%Y-%m-%d')} to {hist.index[-1].strftime('%Y-%m-%d')}")
         
-        # Calculate monthly returns
+        # Calculate monthly returns from Close prices
         returns = []
         for i in range(1, len(hist)):
-            prev_close = hist.iloc[i-1]
-            curr_close = hist.iloc[i]
+            prev_close = hist['Close'].iloc[i-1]
+            curr_close = hist['Close'].iloc[i]
             monthly_return = (curr_close - prev_close) / prev_close
             # Replace NaN with 0
             if pd.isna(monthly_return):
@@ -59,6 +37,12 @@ def fetch_sp500_data():
             returns.append(float(monthly_return))  # Convert to float for JSON serialization
         
         print(f"Calculated {len(returns)} monthly returns")
+        
+        # Calculate some basic statistics
+        mean_return = np.mean(returns)
+        std_return = np.std(returns)
+        print(f"Mean monthly return: {mean_return:.4f} ({mean_return*100:.2f}%)")
+        print(f"Std monthly return: {std_return:.4f} ({std_return*100:.2f}%)")
         
         # Create data directory if it doesn't exist
         os.makedirs('public/data', exist_ok=True)
@@ -68,17 +52,23 @@ def fetch_sp500_data():
             'returns': returns,
             'last_updated': datetime.now().isoformat(),
             'info': {
-                'name': 'S&P 500 Index',
-                'source': 'FRED',
-                'series_id': 'SP500',
-                'description': 'S&P 500 Index'
+                'name': 'S&P 500 Total Return Index',
+                'source': 'Yahoo Finance',
+                'ticker': '^SP500TR',
+                'description': 'S&P 500 Total Return Index (includes dividends)'
             },
             'date_range': {
                 'start': hist.index[0].isoformat(),
                 'end': hist.index[-1].isoformat()
             },
             'data_points': len(returns),
-            'symbol': 'SP500'
+            'symbol': 'SP500TR',
+            'statistics': {
+                'mean_monthly_return': float(mean_return),
+                'std_monthly_return': float(std_return),
+                'mean_annual_return': float(mean_return * 12),
+                'std_annual_return': float(std_return * np.sqrt(12))
+            }
         }
         
         with open('public/data/sp500_returns.json', 'w') as f:
